@@ -9,6 +9,19 @@ import aiosqlite
 import asyncio
 import urllib.request
 import yt_dlp
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+ROLE_MUTED = os.getenv("ROLE_MUTED")
+ROLE_1 = os.getenv("ROLE_1")
+ROLE_2 = os.getenv("ROLE_2")
+
+print(f"LOG_CHANNEL_ID: {LOG_CHANNEL_ID}")
+print(f"ROLE_MUTED: {ROLE_MUTED}, ROLE_1: {ROLE_1}, ROLE_2: {ROLE_2}")
+
 
 intents = discord.Intents().all()
 client = commands.Bot(command_prefix = "!", help_command = None, intents = intents)
@@ -45,7 +58,9 @@ async def send_log(ctx, member, reason, action, color):
   embed.add_field(name ="Moderator", value = ctx.author.mention, inline = True)
   if reason is not None:
     embed.add_field(name ="Reason", value = reason, inline = True)
-  await client.get_channel("YOUR_LOG_CHANNEL_ID_HERE").send(embed = embed)
+
+  log_channel = client.get_channel(LOG_CHANNEL_ID)
+  await log_channel.send(embed=embed)
 
 async def initialise_db():
     client.db = await aiosqlite.connect("expData.db")
@@ -72,9 +87,9 @@ async def on_message(message):
       if lvl.is_integer():
         await message.channel.send(f"{message.author.mention} has proceeded to {int(lvl)}.", delete_after = 3)
         if lvl == 5:
-          role = discord.utils.get(member.guild.roles, name = "ROLE_1_NAME_HERE")
+          role = discord.utils.get(member.guild.roles, name = ROLE_1)
           await member.remove_roles(role)
-          role = discord.utils.get(member.guild.roles, name = "ROLE_2_NAME_HERE")
+          role = discord.utils.get(member.guild.roles, name = ROLE_2)
           await member.add_roles(role)
 
     await client.db.commit()
@@ -83,7 +98,7 @@ async def on_message(message):
 
 @client.event
 async def on_member_join(member):
-  role = discord.utils.get(member.guild.roles, name = "1")
+  role = discord.utils.get(member.guild.roles, name = ROLE_1)
   await member.add_roles(role)
 
 @client.command()
@@ -156,7 +171,7 @@ async def leave(ctx):
 
 @client.command()
 async def play(ctx, *, args = None):
-  global queue, previous_songs
+  global queue, previous_songs, now_playing_msg
 
   if args is None:
     return await ctx.send("You must include a song to play.", delete_after = 3)
@@ -199,6 +214,7 @@ async def play(ctx, *, args = None):
   embed.add_field(name = "Length", value = str(datetime.timedelta(seconds = info['duration'])), inline = False)
   embed.add_field(name = "Link", value = url, inline = False)
   msg = await ctx.send(embed=embed)
+  now_playing_msg = msg
 
   await msg.add_reaction("\u23F8")
   await asyncio.sleep(0.5)
@@ -217,9 +233,6 @@ async def play(ctx, *, args = None):
   current_song = [info.get('title', None), url]
 
   async def process_reaction(reaction, user):
-    if queue:
-      await msg.add_reaction("\u23ED")
-
     if reaction.emoji == "\u23F8":
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.pause()
@@ -262,6 +275,7 @@ async def play(ctx, *, args = None):
     await process_reaction(reaction, user)
 
   await msg.clear_reactions()
+  now_playing_msg = None
   previous_songs.append(current_song)
   if queue:
     await play(ctx, args = queue.pop(0)[1])
@@ -282,6 +296,7 @@ async def q(ctx):
 
 @client.command()
 async def add(ctx, *, args = None):
+  global now_playing_msg
   if args is None:
     return await ctx.send("You must include a song to add.", delete_after = 3)
   
@@ -292,6 +307,9 @@ async def add(ctx, *, args = None):
     title = info['title']
   queue.append([title, url])
   await ctx.send(f"Song: {title} added.", delete_after = 3)
+  if now_playing_msg is not None:
+    await now_playing_msg.add_reaction("\u23ED")
+
 
 @client.command()
 async def save(ctx, *, name = None):
@@ -323,10 +341,12 @@ async def pause(ctx):
 
 @client.command()
 async def stop(ctx):
+  global now_playing_msg
   ctx.voice_client.stop()
   queue.clear()
   previous_songs.clear()
   await ctx.send("Music has stopped.", delete_after = 3)
+  now_playing_msg = None  
 
 @client.command()
 async def next(ctx):
@@ -402,4 +422,5 @@ async def on_command_error(ctx, error):
   if isinstance(error, commands.MissingPermissions):
     await ctx.send("Sorry, you can't do that.")
 
-client.run('YOUR_BOT_TOKEN_HERE')
+
+client.run(TOKEN)
