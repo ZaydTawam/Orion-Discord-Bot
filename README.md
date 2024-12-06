@@ -12,13 +12,31 @@ A versatile Discord bot built using Python and `discord.py`, featuring music pla
   
 ## Installation
 
-1. Download `Orion.py`
-2. Replace `ROLE_1_NAME_HERE` `ROLE_2_NAME_HERE` `YOUR_LOG_CHANNEL_ID_HERE` `YOUR_BOT_TOKEN_HERE`
-- ROLE_1_NAME_HERE: The name of the role that will be assigned at level 1.
-- ROLE_2_NAME_HERE: The name of the role that will be assigned at level 5.
-- YOUR_LOG_CHANNEL_ID_HERE: The channel ID where the bot will send logs (for kicks, bans, etc.).
-- YOUR_BOT_TOKEN_HERE: Your Discord bot token from the Discord Developer Portal.
-3. Run the bot
+1. Clone this repository: 
+```bash
+git clone https://github.com/ZaydTawam/Orion-Discord-Bot.git
+cd Orion-Discord-Bot
+```
+2. Install dependencies: 
+```
+pip install -r requirements.txt
+```
+3. Create a .env file in the project root and add the following variables:
+```
+DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+LOG_CHANNEL_ID=YOUR_LOG_CHANNEL_ID_HERE
+ROLE_1=ROLE_1_NAME_HERE
+ROLE_2=ROLE_2_NAME_HERE
+```
+- DISCORD_BOT_TOKEN: Your bot token from the Discord Developer Portal.
+- LOG_CHANNEL_ID: The channel ID where the bot will send logs (for kicks, bans, etc.).
+- ROLE_1: The name of the role to assign at level 1.
+- ROLE_2: The name of the role to assign at level 5.
+
+4. Run the bot:
+```bash
+python Orion.py
+```
 
 ## Usage
 
