@@ -19,18 +19,15 @@ ROLE_MUTED = os.getenv("ROLE_MUTED")
 ROLE_1 = os.getenv("ROLE_1")
 ROLE_2 = os.getenv("ROLE_2")
 
-print(f"LOG_CHANNEL_ID: {LOG_CHANNEL_ID}")
-print(f"ROLE_MUTED: {ROLE_MUTED}, ROLE_1: {ROLE_1}, ROLE_2: {ROLE_2}")
+YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist':'True'}
+FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
+queue = []
+previous_songs = []
 
 intents = discord.Intents().all()
 client = commands.Bot(command_prefix = "!", help_command = None, intents = intents)
 client.multiplier = 5
-
-queue = []
-previous_songs = []
-YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist':'True'}
-FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 def search(search):
   search = search.replace(" ", "+")
@@ -206,8 +203,9 @@ async def play(ctx, *, args = None):
 
   with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
     info = ydl.extract_info(url, download=False)
-    source = await discord.FFmpegOpusAudio.from_probe(info['url'], **FFMPEG_OPTIONS)
-    ctx.voice_client.play(source)
+
+  source = await discord.FFmpegOpusAudio.from_probe(info['url'], **FFMPEG_OPTIONS)
+  ctx.voice_client.play(source)
   
   embed = discord.Embed(title = "Currently Playing", colour = 0xFFFFFF)
   embed.add_field(name = "Song", value = info.get('title', None), inline = False)
@@ -217,82 +215,85 @@ async def play(ctx, *, args = None):
   now_playing_msg = msg
 
   await msg.add_reaction("\u23F8")
-  await asyncio.sleep(0.5)
+  await asyncio.sleep(0.1)
   await msg.add_reaction("\u25B6")
-  await asyncio.sleep(0.5)
+  await asyncio.sleep(0.1)
   await msg.add_reaction("\u23F9")
-  await asyncio.sleep(0.5)
+  await asyncio.sleep(0.1)
   await msg.add_reaction("\U0001F504")
   if previous_songs:
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.1)
     await msg.add_reaction("\u23EE")
   if queue:
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.1)
     await msg.add_reaction("\u23ED")
 
-  current_song = [info.get('title', None), url]
+  current_song = (info.get('title', None), url)
+  song_finished = True
 
   async def process_reaction(reaction, user):
-    if reaction.emoji == "\u23F8":
+    if reaction.emoji == "\u23F8": #pause
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.pause()
-    elif reaction.emoji == "\u25B6":
+    elif reaction.emoji == "\u25B6": #resume
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.resume()
-    elif reaction.emoji == "\u23F9":
+    elif reaction.emoji == "\u23F9": #stop
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.stop()
       queue.clear()
       previous_songs.clear()
       await ctx.send("Music has stopped.", delete_after = 3)
-      return
-    elif reaction.emoji == "\U0001F504":
+      return False
+    elif reaction.emoji == "\U0001F504": #restart
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.stop()
-      with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(url, download=False)
-        new_source = await discord.FFmpegOpusAudio.from_probe(info['url'], **FFMPEG_OPTIONS)
+      new_source = await discord.FFmpegOpusAudio.from_probe(info['url'], **FFMPEG_OPTIONS)
       ctx.voice_client.play(new_source)
-    elif reaction.emoji == "\u23EE":
+    elif reaction.emoji == "\u23EE": #prev
       await msg.remove_reaction(reaction.emoji, user)
       queue.insert(0, current_song)
       queue.insert(0, previous_songs.pop())
       ctx.voice_client.stop()
-    elif reaction.emoji == "\u23ED":
+      return False
+    elif reaction.emoji == "\u23ED": #next
       await msg.remove_reaction(reaction.emoji, user)
       ctx.voice_client.stop()
+    return True
     
   while ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
     try:
       reaction, user = await client.wait_for(
         "reaction_add",
         check=lambda reaction, user: not user.bot and reaction.message.id == msg.id and reaction.emoji in ["\u23F8", "\u25B6", "\u23F9","\U0001F504", "\u23EE", "\u23ED"], 
-        timeout = info['duration']
+        timeout = 0.1
       )
     except asyncio.TimeoutError:
-      break
+      continue
 
-    await process_reaction(reaction, user)
+    song_finished = await process_reaction(reaction, user)
 
   await msg.clear_reactions()
   now_playing_msg = None
-  previous_songs.append(current_song)
+  if song_finished:
+    previous_songs.append(current_song)
   if queue:
     await play(ctx, args = queue.pop(0)[1])
 
 @client.command(aliases = ['queue'])
 async def q(ctx):
-  if not queue:
+  if not (queue and previous_songs):
     return await ctx.send("The queue is empty.", delete_after = 3)
   if previous_songs:
     embed = discord.Embed(title = "History", colour = 0xFFFFFF)
     for i in range(len(previous_songs)):
       embed.add_field(name = f"{i + 1}.", value = f"> {previous_songs[i][0]}\n> {previous_songs[i][1]}", inline = False)
     await ctx.send(embed=embed)
-  embed = discord.Embed(title = "Playing Next", colour = 0xFFFFFF)
-  for i in range(len(queue)):
-    embed.add_field(name = f"{i + 1}.", value = f"> {queue[i][0]}\n> {queue[i][1]}", inline = False)
-  await ctx.send(embed=embed)
+  if queue:
+    embed = discord.Embed(title = "Playing Next", colour = 0xFFFFFF)
+    for i in range(len(queue)):
+      embed.add_field(name = f"{i + 1}.", value = f"> {queue[i][0]}\n> {queue[i][1]}", inline = False)
+    await ctx.send(embed=embed)
 
 @client.command()
 async def add(ctx, *, args = None):
@@ -303,13 +304,11 @@ async def add(ctx, *, args = None):
   url = search(args) if "youtube.com/watch?" not in args else args
   ydl = yt_dlp.YoutubeDL({'outtmpl': '%(id)s.%(ext)s'})
   with ydl:
-    info = ydl.extract_info(url, download=False)
-    title = info['title']
-  queue.append([title, url])
+    title = ydl.extract_info(url, download=False)['title']
+  queue.append((title, url))
   await ctx.send(f"Song: {title} added.", delete_after = 3)
   if now_playing_msg is not None:
     await now_playing_msg.add_reaction("\u23ED")
-
 
 @client.command()
 async def save(ctx, *, name = None):
