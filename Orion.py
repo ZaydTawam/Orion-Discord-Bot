@@ -36,17 +36,11 @@ def search(search):
   return str(f"https://www.youtube.com/watch?v={video_ids[0]}")
 
 def load_playlist(name):
-  name = str(name) + " - "
-  playlist = None
   with open("saved-queues.txt", "r") as file:
     for line in file:
-      if line.startswith(name):
-          playlist = line.replace(name, "").split(" -- ")
-
-  if playlist:
-    return [song.strip().split("---") for song in playlist]
-  else:
-    return False
+      if line.startswith(name + " : "):
+        return json.loads(line.replace(name + " : ", "").strip())
+  return False
   
 async def send_log(ctx, member, reason, action, color):
   embed = discord.Embed(colour = color)
@@ -184,16 +178,17 @@ async def play(ctx, *, args = None):
 
   if "queue: " in args:
     playlist_name = args.replace("queue: ", "")
-    if load_playlist(playlist_name):
+    playlist = load_playlist(playlist_name)
+    if playlist:
       queue.clear()
       previous_songs.clear()
-      queue = load_playlist(playlist_name)
-      url = queue.pop(0)[1]
+      queue = playlist.copy()
+      url = queue.pop(0)["url"]
     else:
       return await ctx.send("Playlist does not exist.", delete_after = 3)
   elif args == "q":
     if queue:
-      url = queue.pop(0)[1]
+      url = queue.pop(0)["url"]
     else:
       return await ctx.send("Queue is empty.", delete_after = 3)
   else:
@@ -228,7 +223,7 @@ async def play(ctx, *, args = None):
     await asyncio.sleep(0.1)
     await msg.add_reaction("\u23ED")
 
-  current_song = (info.get('title', None), url)
+  current_song = {"title": info.get('title', None), "url": url}
   song_finished = True
 
   async def process_reaction(reaction, user):
@@ -266,7 +261,7 @@ async def play(ctx, *, args = None):
       reaction, user = await client.wait_for(
         "reaction_add",
         check=lambda reaction, user: not user.bot and reaction.message.id == msg.id and reaction.emoji in ["\u23F8", "\u25B6", "\u23F9","\U0001F504", "\u23EE", "\u23ED"], 
-        timeout = 0.1
+        timeout = 0.5
       )
     except asyncio.TimeoutError:
       continue
@@ -278,21 +273,21 @@ async def play(ctx, *, args = None):
   if song_finished:
     previous_songs.append(current_song)
   if queue:
-    await play(ctx, args = queue.pop(0)[1])
+    await play(ctx, args = queue.pop(0)["url"])
 
 @client.command(aliases = ['queue'])
 async def q(ctx):
-  if not (queue and previous_songs):
-    return await ctx.send("The queue is empty.", delete_after = 3)
+  if not queue and not previous_songs:
+    await ctx.send("The queue is empty.", delete_after = 3)
   if previous_songs:
     embed = discord.Embed(title = "History", colour = 0xFFFFFF)
     for i in range(len(previous_songs)):
-      embed.add_field(name = f"{i + 1}.", value = f"> {previous_songs[i][0]}\n> {previous_songs[i][1]}", inline = False)
+      embed.add_field(name = f"{i + 1}.", value = f"> {previous_songs[i]['title']}\n> {previous_songs[i]['url']}", inline = False)
     await ctx.send(embed=embed)
   if queue:
     embed = discord.Embed(title = "Playing Next", colour = 0xFFFFFF)
     for i in range(len(queue)):
-      embed.add_field(name = f"{i + 1}.", value = f"> {queue[i][0]}\n> {queue[i][1]}", inline = False)
+      embed.add_field(name = f"{i + 1}.", value = f"> {queue[i]['title']}\n> {queue[i]['url']}", inline = False)
     await ctx.send(embed=embed)
 
 @client.command()
@@ -305,23 +300,32 @@ async def add(ctx, *, args = None):
   ydl = yt_dlp.YoutubeDL({'outtmpl': '%(id)s.%(ext)s'})
   with ydl:
     title = ydl.extract_info(url, download=False)['title']
-  queue.append((title, url))
+  queue.append({"title": title, "url": url})
   await ctx.send(f"Song: {title} added.", delete_after = 3)
   if now_playing_msg is not None:
     await now_playing_msg.add_reaction("\u23ED")
 
 @client.command()
+async def remove(ctx, args = None):
+  if not queue:
+    return await ctx.send("The queue is empty.", delete_after = 3)
+  if args is None:
+    return await ctx.send("You must specify what you would like to remove.", delete_after = 3)
+  number = int(args)
+  if not isinstance(number, int):
+    return await ctx.send("You must provide a number.", delete_after = 3)
+  if not 0 < number <= len(queue):
+    return await ctx.send("Must be a valid number.", delete_after = 3)
+  await ctx.send(f"Removed: {queue.pop(number-1)['title']}", delete_after = 3)
+  
+@client.command()
 async def save(ctx, *, name = None):
   if name is None:
     return await ctx.send("You must provide a name for the playlist.", delete_after = 3)
-  if queue == []:
+  if not queue:
     return await ctx.send("Queue is empty.", delete_after = 3)
-  file = open("saved-queues.txt", "w")
-  file.write(str(name + " - "))
-  for i in range(len(queue)):
-      file.write(f"{queue[i][0]}---{queue[i][1]} -- ")
-  file.write("\n")
-  file.close()
+  with open("saved-queues.txt", "w") as file:
+    file.write(name + " : " + json.dumps(queue) + "\n")
   await ctx.send("Playlist saved.", delete_after = 3)
 
 @client.command(aliases = ['clear-queue'])
@@ -339,7 +343,7 @@ async def pause(ctx):
   await ctx.voice_client.pause()
 
 @client.command()
-async def stop(ctx):
+async def stop(ctx): #!
   global now_playing_msg
   ctx.voice_client.stop()
   queue.clear()
